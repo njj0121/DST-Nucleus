@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"os/signal"
@@ -228,6 +227,11 @@ func 监听控制台输入() {
 	var 物理缓冲 [4096]byte
 	var 尾部游标 int
 
+	const 洞穴命令前缀 = "caves:"
+	const 洞穴命令前缀长度 = len(洞穴命令前缀)
+
+	启用主世界 := 全局配置.配置区2.启用主世界.Load()
+
 	for {
 		n, err := os.Stdin.Read(物理缓冲[尾部游标:])
 		if err != nil || n == 0 {
@@ -240,8 +244,10 @@ func 监听控制台输入() {
 			if 物理缓冲[i] == '\n' {
 				指令流 := 物理缓冲[处理游标:i]
 
-				if bytes.HasPrefix(指令流, S2B("caves:")) {
-					发送纯文本指令(B2S(指令流[6:]), 发往洞穴)
+				if !启用主世界 {
+					发送纯文本指令(B2S(指令流), 发往洞穴)
+				} else if len(指令流) >= 洞穴命令前缀长度 && string(指令流[:洞穴命令前缀长度]) == 洞穴命令前缀 {
+					发送纯文本指令(B2S(指令流[洞穴命令前缀长度:]), 发往洞穴)
 				} else {
 					发送纯文本指令(B2S(指令流), 发往主世界)
 				}
