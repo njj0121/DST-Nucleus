@@ -609,6 +609,8 @@ var dict = map[string]string{
 	"开始":             "vStart",
 	"结束":             "vEnd",
 	"当前周期":           "CurrentCycle",
+	"洞穴命令前缀":         "cavesCommandPrefix",
+	"洞穴命令前缀长度":       "cavesCommandPrefixLen",
 }
 
 func main() {
