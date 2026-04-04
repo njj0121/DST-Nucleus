@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -244,6 +245,16 @@ func 监听控制台输入() {
 		for i := 0; i < 尾部游标; i++ {
 			if 物理缓冲[i] == '\n' {
 				指令流 := 物理缓冲[处理游标:i]
+
+				if len(指令流) > 0 && 指令流[len(指令流)-1] == '\r' {
+					指令流 = 指令流[:len(指令流)-1]
+				}
+
+				if string(指令流) == `igegjfmwdhb` {
+					debug.FreeOSMemory()
+					处理游标 = i + 1
+					continue
+				}
 
 				if !启用主世界 {
 					发送纯文本指令(B2S(指令流), 发往洞穴)

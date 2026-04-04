@@ -611,6 +611,23 @@ var dict = map[string]string{
 	"洞穴命令前缀长度":       "cavesCommandPrefixLen",
 	"终止函数":           "SeverancePayload",
 	"旧指针":            "StaleArtifact",
+	"主世界日志连接数":       "MasterLogConnCount",
+	"主世界中央日志管道":      "MasterCentralLogChan",
+	"主世界日志订阅":        "MasterLogSubChan",
+	"主世界日志退订":        "MasterLogUnsubChan",
+	"洞穴日志连接数":        "CavesLogConnCount",
+	"洞穴中央日志管道":       "CavesCentralLogChan",
+	"洞穴日志订阅":         "CavesLogSubChan",
+	"洞穴日志退订":         "CavesLogUnsubChan",
+	"广播日志块":          "BroadcastLogChunk",
+	"块":              "vChunk",
+	"引用数":            "RefCount",
+	"日志广播池":          "LogBroadcastPool",
+	"主世界日志广播中心":      "MasterLogBroadcastHub",
+	"订阅者集合":          "vSubscribers",
+	"洞穴日志广播中心":       "CavesLogBroadcastHub",
+	"中央管道":           "vCentralChan",
+	"连接数":            "vConnCount",
 }
 
 func main() {

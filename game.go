@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -118,6 +119,8 @@ func 运行主世界(生命周期 context.Context, 终止生命周期 context.Ca
 		全局配置.原子锁.主世界就绪原子锁.Store(false)
 	}()
 
+	debug.FreeOSMemory()
+
 	go func() {
 		清洗命令通道(主世界命令通道)
 		全局配置.原子锁.主世界接收器存活.Store(true)
@@ -212,6 +215,8 @@ func 运行洞穴(生命周期 context.Context, 终止生命周期 context.Cance
 		}
 		全局配置.原子锁.洞穴就绪原子锁.Store(false)
 	}()
+
+	debug.FreeOSMemory()
 
 	go func() {
 		清洗命令通道(洞穴命令通道)
@@ -590,14 +595,20 @@ var 日志读取池 = sync.Pool{
 func 实时输出流(节点类型 uint8, 前缀 string, 读取器 io.Reader, 就绪标记 *atomic.Bool) {
 	var 目标日志文件 string
 	var 允许控制台输出 bool
+	var 中央管道 chan *广播日志块
+	var 连接数 *atomic.Int32
 
 	switch 节点类型 {
 	case 节点_主世界, 节点_主世界_错误:
 		目标日志文件 = 全局配置.日志状态.主世界日志路径
 		允许控制台输出 = 全局配置.日志状态.主世界输出.Load()
+		中央管道 = 主世界中央日志管道
+		连接数 = &主世界日志连接数
 	case 节点_洞穴, 节点_洞穴_错误:
 		目标日志文件 = 全局配置.日志状态.洞穴日志路径
 		允许控制台输出 = 全局配置.日志状态.洞穴输出.Load()
+		中央管道 = 洞穴中央日志管道
+		连接数 = &洞穴日志连接数
 	case 节点_外部工具:
 		目标日志文件 = ""
 		允许控制台输出 = true
@@ -666,6 +677,20 @@ func 实时输出流(节点类型 uint8, 前缀 string, 读取器 io.Reader, 就
 		if 写入的文件 != nil {
 			写入的文件.Write(行字节)
 			写入的文件.Write(控制台换行符)
+		}
+
+		if 连接数 != nil && 连接数.Load() > 0 {
+			块 := 日志广播池.Get().(*广播日志块)
+			块.数据 = append(块.数据[:0], "data: "...)
+			块.数据 = append(块.数据, 行字节...)
+			块.数据 = append(块.数据, "\n\n"...)
+			块.引用数.Store(1)
+
+			select {
+			case 中央管道 <- 块:
+			default:
+				日志广播池.Put(块)
+			}
 		}
 
 		if bytes.Contains(行字节, 回显污染头) {
