@@ -39,7 +39,7 @@ type 极速网关 struct{}
 
 func (极速网关) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
-	case "/api/events", "/api/epoch/master", "/api/epoch/caves":
+	case "/api/events", "/api/epoch/master", "/api/epoch/caves", "/api/log/master", "/api/log/caves":
 	default:
 		控制器 := http.NewResponseController(w)
 		超时时间 := time.Now().Add(10 * time.Second)
@@ -73,6 +73,10 @@ func (极速网关) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		api_file_write(w, r)
 	case "/api/update/state":
 		api_update_state(w, r)
+	case "/api/log/master":
+		api_log_master(w, r)
+	case "/api/log/caves":
+		api_log_caves(w, r)
 	default:
 		w.WriteHeader(404)
 		w.Write(S2B("404 page not found\n"))
@@ -86,6 +90,9 @@ func 启动本地api接口() {
 	if 全局配置.配置区2.启用主世界.Load() != 全局配置.配置区2.启用洞穴.Load() {
 		go 全局世代心跳(api辅助协程生命周期)
 	}
+
+	go 主世界日志广播中心(api辅助协程生命周期)
+	go 洞穴日志广播中心(api辅助协程生命周期)
 
 	接口地址 := 全局配置.配置区1.http接口
 
@@ -676,6 +683,136 @@ func api_update_state(w http.ResponseWriter, r *http.Request) {
 	w.Write(S2B(`{"status":"success"}`))
 }
 
+type 广播日志块 struct {
+	_   [64]byte
+	引用数 atomic.Int32
+	_   [64]byte
+	数据  []byte
+}
+
+var 日志广播池 = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 1024)
+		return &广播日志块{数据: b}
+	},
+}
+
+var 主世界日志连接数 atomic.Int32
+var 主世界中央日志管道 = make(chan *广播日志块, 1024)
+var 主世界日志订阅 = make(chan chan *广播日志块, 128)
+var 主世界日志退订 = make(chan chan *广播日志块, 128)
+
+var 洞穴日志连接数 atomic.Int32
+var 洞穴中央日志管道 = make(chan *广播日志块, 1024)
+var 洞穴日志订阅 = make(chan chan *广播日志块, 128)
+var 洞穴日志退订 = make(chan chan *广播日志块, 128)
+
+func api_log_master(w http.ResponseWriter, r *http.Request) {
+	w.Header()["Content-Type"] = sse头
+	w.Header()["Cache-Control"] = noCache头
+	w.Header()["Connection"] = keepAlive头
+	w.Header()["Access-Control-Allow-Origin"] = 跨域头
+
+	冲刷器, 强转成功 := w.(http.Flusher)
+	if !强转成功 {
+		return
+	}
+
+	事件通道 := make(chan *广播日志块, 256)
+	主世界日志连接数.Add(1)
+
+	主世界日志订阅 <- 事件通道
+
+	defer func() {
+		主世界日志连接数.Add(-1)
+
+		主世界日志退订 <- 事件通道
+
+		for 块 := range 事件通道 {
+			if 块.引用数.Add(-1) == 0 {
+				日志广播池.Put(块)
+			}
+		}
+	}()
+
+	客户端拔管 := r.Context().Done()
+
+	rc := http.NewResponseController(w)
+
+	for {
+		select {
+		case <-客户端拔管:
+			return
+		case 块 := <-事件通道:
+			rc.SetWriteDeadline(time.Now().Add(2 * time.Second))
+
+			_, err := w.Write(块.数据)
+
+			if 块.引用数.Add(-1) == 0 {
+				日志广播池.Put(块)
+			}
+
+			if err != nil {
+				return
+			}
+			冲刷器.Flush()
+		}
+	}
+}
+
+func api_log_caves(w http.ResponseWriter, r *http.Request) {
+	w.Header()["Content-Type"] = sse头
+	w.Header()["Cache-Control"] = noCache头
+	w.Header()["Connection"] = keepAlive头
+	w.Header()["Access-Control-Allow-Origin"] = 跨域头
+
+	冲刷器, 强转成功 := w.(http.Flusher)
+	if !强转成功 {
+		return
+	}
+
+	事件通道 := make(chan *广播日志块, 256)
+	洞穴日志连接数.Add(1)
+
+	洞穴日志订阅 <- 事件通道
+
+	defer func() {
+		洞穴日志连接数.Add(-1)
+
+		洞穴日志退订 <- 事件通道
+
+		for 块 := range 事件通道 {
+			if 块.引用数.Add(-1) == 0 {
+				日志广播池.Put(块)
+			}
+		}
+	}()
+
+	客户端拔管 := r.Context().Done()
+
+	rc := http.NewResponseController(w)
+
+	for {
+		select {
+		case <-客户端拔管:
+			return
+		case 块 := <-事件通道:
+			rc.SetWriteDeadline(time.Now().Add(2 * time.Second))
+
+			_, err := w.Write(块.数据)
+
+			if 块.引用数.Add(-1) == 0 {
+				日志广播池.Put(块)
+			}
+
+			if err != nil {
+				return
+			}
+			冲刷器.Flush()
+		}
+	}
+}
+
 func 解析API无符号整型(载荷 []byte) uint32 {
 	if len(载荷) == 0 {
 		return 4294967295
@@ -838,6 +975,68 @@ func 全局世代心跳(生命周期 context.Context) {
 				}
 				return true
 			})
+		}
+	}
+}
+
+func 主世界日志广播中心(生命周期 context.Context) {
+	订阅者集合 := make(map[chan *广播日志块]struct{})
+
+	for {
+		select {
+		case <-生命周期.Done():
+			return
+
+		case ch := <-主世界日志订阅:
+			订阅者集合[ch] = struct{}{}
+
+		case ch := <-主世界日志退订:
+			delete(订阅者集合, ch)
+			close(ch)
+
+		case 块 := <-主世界中央日志管道:
+			for ch := range 订阅者集合 {
+				块.引用数.Add(1)
+				select {
+				case ch <- 块:
+				default:
+					块.引用数.Add(-1)
+				}
+			}
+			if 块.引用数.Add(-1) == 0 {
+				日志广播池.Put(块)
+			}
+		}
+	}
+}
+
+func 洞穴日志广播中心(生命周期 context.Context) {
+	订阅者集合 := make(map[chan *广播日志块]struct{})
+
+	for {
+		select {
+		case <-生命周期.Done():
+			return
+
+		case ch := <-洞穴日志订阅:
+			订阅者集合[ch] = struct{}{}
+
+		case ch := <-洞穴日志退订:
+			delete(订阅者集合, ch)
+			close(ch)
+
+		case 块 := <-洞穴中央日志管道:
+			for ch := range 订阅者集合 {
+				块.引用数.Add(1)
+				select {
+				case ch <- 块:
+				default:
+					块.引用数.Add(-1)
+				}
+			}
+			if 块.引用数.Add(-1) == 0 {
+				日志广播池.Put(块)
+			}
 		}
 	}
 }

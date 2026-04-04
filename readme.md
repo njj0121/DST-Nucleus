@@ -37,6 +37,7 @@ A zero-dependency Don't Starve Together server core.
 * Exposes a comprehensive set of API endpoints.
 * Query real-time game status.
 * Dispatch custom Lua commands directly to a specified server.
+* **Sub-millisecond real-time log streaming:** Catch the raw STDOUT waterfall via SSE. By decoupling command injections (Input) and log capturing (Output), you hold the ultimate I/O gateway to build absolutely anything.
 * Start, stop, and restart servers—delivering a `systemctl`-like bare-metal experience.
 * Read and write configuration files with 1:1 raw transmission. What you see is what you get. Paste your configs directly and write them; the API makes zero attempts to mutate your data.
 * Includes a minimalist UI covering essential functions: reading/writing configs, toggling server states, and monitoring game status.

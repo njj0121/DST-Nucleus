@@ -145,11 +145,84 @@
         .section {
             margin-bottom: 20px;
         }
+
+        .log-window {
+            display: none;
+            position: absolute;
+            top: 50px;
+            left: 260px;
+            width: 650px;
+            height: 400px;
+            background: rgba(10, 10, 10, 0.95);
+            border: 1px solid var(--border);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+            z-index: 100;
+            flex-direction: column;
+            backdrop-filter: blur(5px);
+        }
+
+        .log-header {
+            background: var(--panel);
+            color: #fff;
+            padding: 8px 10px;
+            font-size: 12px;
+            font-weight: bold;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: move;
+            user-select: none;
+        }
+
+        .log-header-controls button {
+            margin: 0 0 0 5px;
+            padding: 2px 8px;
+            font-size: 12px;
+        }
+
+        .log-content {
+            flex: 1;
+            padding: 10px;
+            overflow: auto;
+            color: #ccc;
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            white-space: pre;
+            line-height: 1.4;
+        }
+
+        .log-input {
+            background: #050505;
+            color: #00ff00;
+            border: none;
+            border-top: 1px solid var(--border);
+            padding: 8px 10px;
+            font-family: Consolas, monospace;
+            font-size: 13px;
+            outline: none;
+            width: 100%;
+            box-sizing: border-box;
+            flex-shrink: 0;
+        }
+
+        .log-input::placeholder {
+            color: #444;
+        }
+
+        .log-input:focus {
+            background: #000;
+        }
     </style>
 </head>
 
 <body>
     <div class="sidebar-left">
+        <div class="section">
+            <h3>LIVE LOGS</h3>
+            <button onclick="toggleLogWindow('master')">Open Master Logs</button><br>
+            <button onclick="toggleLogWindow('caves')">Open Caves Logs</button><br>
+        </div>
         <div class="section">
             <h3>CORE CONTROL</h3>
             <button onclick="req('/api/start', 'POST')">Start</button><br>
@@ -188,6 +261,32 @@
                 [probe] establishing physical link...
             </div>
         </div>
+    </div>
+
+    <div id="log-window-master" class="log-window" onmousedown="bringToFront(this)">
+        <div class="log-header" onmousedown="startDrag(event, 'log-window-master')">
+            <span id="log-title-master" style="color: #00ff00;">[STREAM] Master Logs</span>
+            <div class="log-header-controls">
+                <button onclick="clearLogs('master')">Clear</button>
+                <button class="danger-btn" onclick="toggleLogWindow('master')">X</button>
+            </div>
+        </div>
+        <div id="log-content-master" class="log-content"></div>
+        <input type="text" class="log-input" id="log-input-master"
+            placeholder="Execute lua command... (Press Enter to send)" onkeydown="sendCommand(event, 'master')">
+    </div>
+
+    <div id="log-window-caves" class="log-window" onmousedown="bringToFront(this)">
+        <div class="log-header" onmousedown="startDrag(event, 'log-window-caves')">
+            <span id="log-title-caves" style="color: #00ff00;">[STREAM] Caves Logs</span>
+            <div class="log-header-controls">
+                <button onclick="clearLogs('caves')">Clear</button>
+                <button class="danger-btn" onclick="toggleLogWindow('caves')">X</button>
+            </div>
+        </div>
+        <div id="log-content-caves" class="log-content"></div>
+        <input type="text" class="log-input" id="log-input-caves"
+            placeholder="Execute lua command... (Press Enter to send)" onkeydown="sendCommand(event, 'caves')">
     </div>
 
     <script>
@@ -361,6 +460,202 @@
             document.getElementById("live-status").innerHTML =
                 "<span style='color:#cc0000; font-weight:bold; background:#220000; padding:2px;'>[X] PHYSICAL LINK SEVERED. RECONNECTING...</span>";
         };
+
+        let activeDragEl = null;
+        let dragOffsetX = 0, dragOffsetY = 0;
+        let highestZIndex = 100;
+
+        function startDrag(e, windowId) {
+            if (e.target.tagName === 'BUTTON') return;
+            activeDragEl = document.getElementById(windowId);
+            const rect = activeDragEl.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+
+            document.addEventListener('mousemove', doDrag);
+            document.addEventListener('mouseup', stopDrag);
+            bringToFront(activeDragEl);
+        }
+
+        function doDrag(e) {
+            if (!activeDragEl) return;
+            let newX = Math.max(0, e.clientX - dragOffsetX);
+            let newY = Math.max(0, e.clientY - dragOffsetY);
+            activeDragEl.style.left = newX + 'px';
+            activeDragEl.style.top = newY + 'px';
+        }
+
+        function stopDrag() {
+            activeDragEl = null;
+            document.removeEventListener('mousemove', doDrag);
+            document.removeEventListener('mouseup', stopDrag);
+        }
+
+        function bringToFront(el) {
+            highestZIndex++;
+            el.style.zIndex = highestZIndex;
+        }
+
+        const logStreams = { master: null, caves: null };
+        const logBuffer = { master: [], caves: [] };
+        const renderTimer = { master: null, caves: null };
+
+        function toggleLogWindow(type) {
+            const win = document.getElementById(`log-window-${type}`);
+            const content = document.getElementById(`log-content-${type}`);
+            const titleEl = document.getElementById(`log-title-${type}`);
+
+            if (win.style.display === 'flex') {
+                win.style.display = 'none';
+                if (logStreams[type]) {
+                    logStreams[type].close();
+                    logStreams[type] = null;
+                    log(`[sys] ${type} log stream terminated.`);
+                    titleEl.style.color = "#00ff00";
+                    titleEl.innerText = `[STREAM] ${type.charAt(0).toUpperCase() + type.slice(1)} Logs`;
+                }
+            } else {
+                win.style.display = 'flex';
+                bringToFront(win);
+
+                if (!logStreams[type]) {
+                    log(`[sys] establishing ${type} log stream...`);
+                    content.innerHTML += `<span style="color:#555;">[sys] Waiting for ${type} logs...\n</span>`;
+
+                    titleEl.style.color = "#ffaa00";
+                    titleEl.innerText = `[CONNECTING] ${type.toUpperCase()}...`;
+
+                    logStreams[type] = new EventSource(`/api/log/${type}`);
+
+                    logStreams[type].onopen = () => {
+                        titleEl.style.color = "#00ff00";
+                        titleEl.innerText = `[STREAM] ${type.toUpperCase()} LOGS`;
+                    };
+
+                    logStreams[type].onmessage = (e) => {
+                        if (titleEl.style.color !== "rgb(0, 255, 0)" && titleEl.style.color !== "#00ff00") {
+                            titleEl.style.color = "#00ff00";
+                            titleEl.innerText = `[STREAM] ${type.toUpperCase()} LOGS`;
+                        }
+
+                        logBuffer[type].push(e.data);
+
+                        if (logBuffer[type].length > 1000) {
+                            logBuffer[type].shift();
+                        }
+
+                        if (!renderTimer[type]) {
+                            renderTimer[type] = requestAnimationFrame(() => {
+                                renderTimer[type] = null;
+
+                                if (logBuffer[type].length === 0) return;
+
+                                const isScrolledToBottom = content.scrollHeight - content.clientHeight <= content.scrollTop + 20;
+
+                                const fragment = document.createDocumentFragment();
+                                for (const line of logBuffer[type]) {
+                                    fragment.appendChild(document.createTextNode(line + '\n'));
+                                }
+
+                                content.appendChild(fragment);
+                                logBuffer[type] = [];
+
+                                while (content.childNodes.length > 1000) {
+                                    content.removeChild(content.firstChild);
+                                }
+
+                                if (isScrolledToBottom) {
+                                    content.scrollTop = content.scrollHeight;
+                                }
+                            });
+                        }
+                    };
+
+                    logStreams[type].onerror = () => {
+                        titleEl.style.color = "#cc0000";
+                        titleEl.innerText = `[OFFLINE] ${type.toUpperCase()} (RETRYING...)`;
+                    };
+                }
+            }
+        }
+
+        function clearLogs(type) {
+            document.getElementById(`log-content-${type}`).textContent = '';
+        }
+
+        const cmdHistory = { master: [], caves: [] };
+        const historyIndex = { master: 0, caves: 0 };
+
+        async function sendCommand(event, target) {
+            const inputEl = document.getElementById(`log-input-${target}`);
+
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (cmdHistory[target].length > 0 && historyIndex[target] > 0) {
+                    historyIndex[target]--;
+                    inputEl.value = cmdHistory[target][historyIndex[target]];
+                }
+                return;
+            }
+
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                if (historyIndex[target] < cmdHistory[target].length - 1) {
+                    historyIndex[target]++;
+                    inputEl.value = cmdHistory[target][historyIndex[target]];
+                } else {
+                    historyIndex[target] = cmdHistory[target].length;
+                    inputEl.value = '';
+                }
+                return;
+            }
+
+            if (event.key === 'Enter') {
+                const cmd = inputEl.value.trim();
+                if (!cmd) return;
+
+                if (cmdHistory[target].length > 100) cmdHistory[target].shift();
+                cmdHistory[target].push(cmd);
+                historyIndex[target] = cmdHistory[target].length;
+                // -----------------------------------------------------
+
+                const contentEl = document.getElementById(`log-content-${target}`);
+
+                const echoNode = document.createElement('span');
+                echoNode.style.color = '#ffff00';
+                echoNode.textContent = `> ${cmd}\n`;
+                contentEl.appendChild(echoNode);
+
+                while (contentEl.childNodes.length > 1000) {
+                    contentEl.removeChild(contentEl.firstChild);
+                }
+
+                contentEl.scrollTop = contentEl.scrollHeight;
+                inputEl.value = '';
+
+                try {
+                    const res = await fetch(`/api/command?target=${target}`, {
+                        method: 'POST',
+                        body: cmd
+                    });
+
+                    if (!res.ok) {
+                        const errText = await res.text();
+                        const errNode = document.createElement('span');
+                        errNode.style.color = '#cc0000';
+                        errNode.textContent = `[err] command rejected: ${errText}\n`;
+                        contentEl.appendChild(errNode);
+                        contentEl.scrollTop = contentEl.scrollHeight;
+                    }
+                } catch (e) {
+                    const errNode = document.createElement('span');
+                    errNode.style.color = '#cc0000';
+                    errNode.textContent = `[err] network failure: ${e.message}\n`;
+                    contentEl.appendChild(errNode);
+                    contentEl.scrollTop = contentEl.scrollHeight;
+                }
+            }
+        }
     </script>
 </body>
 

@@ -387,3 +387,79 @@ Boss Radar (Countdown Timers):
 If invalid data is sent, the engine instantly defaults to 4294967295 (Inactive/Not spawned).
 
 Keys: `deerclops`, `bearger`, `moose`, `dragonfly`, `beequeen`, `klaus`, `toadstool`, `fuelweaver`, `malbatross`, `lordfruitfly`, `antlion`.
+
+### 8. /api/log/{target}
+* Method: `GET`
+* Endpoint: 
+
+    `http://127.0.0.1:20888/api/log/master`
+
+    `http://127.0.0.1:20888/api/log/caves`
+
+### 8.1 Description
+This endpoint establishes a **Server-Sent Events (SSE)** connection to stream the raw `stdout` of the target DST process in real-time.
+
+In keeping with our **Zero-Allocation** philosophy, this is a direct memory pipeline. The engine intercepts the raw byte stream from the game process and broadcasts it directly to connected clients via a zero-copy object pool, bypassing any heavy string concatenation or standard library abstractions.
+
+### 8.2 Path Parameters
+* `target`: The target server process. Must be either `master` or `caves`.
+
+### 8.3 Headers
+* `Accept: text/event-stream` (Recommended for standard SSE clients)
+
+### 8.4 Connection Behavior & Backpressure (Zero-Blocking)
+**WARNING: The Core prioritizes the game process over your client.**
+To ensure the DST server is never blocked by a slow network, heavy UI rendering, or an overloaded dashboard:
+* We utilize a strict non-blocking channel architecture (`select + default`).
+* If your client consumes the stream too slowly during a massive log flood (e.g., LUA infinite loop errors), the Core will **mercilessly drop** the pending log frames for your connection.
+* The game process will never stall. Your script/client must be fast enough to catch the waterfall.
+
+### 8.5 Response Format (Raw SSE)
+**DO NOT expect JSON.** The payload is pure, raw text emitted directly by the game engine, wrapped in the standard SSE `data:` envelope. Use regular expressions (`Regex`) on your end to extract the information you need.
+
+### 8.6 Quick Test (CLI)
+You can easily test the real-time log pipeline directly from your terminal using `curl`. 
+
+**WARNING:** You MUST use the `-N` or `--no-buffer` flag. Otherwise, `curl` will buffer the output, destroying the real-time nature of the stream.
+
+#### Example 1: Catching the Raw Waterfall
+To simply dump the raw byte stream to your console as fast as the engine can spit it out:
+```bash
+curl -N -H "Accept: text/event-stream" "http://127.0.0.1:20888/api/log/master"
+```
+#### Example 2: The Unix Philosophy (Tracking Player Activity)
+Embrace the Unix philosophy. Let the Core handle the raw I/O, and let your OS tools handle the business logic.
+Want to build a lightweight player login monitor without writing a heavy backend? Pipe the stream directly into `grep` (using `--line-buffered`) to catch join events instantly:
+
+```bash
+curl -sN -H "Accept: text/event-stream" "http://127.0.0.1:20888/api/log/master" | grep --line-buffered "Join Announcement"
+curl -sN -H "Accept: text/event-stream" "http://127.0.0.1:20888/api/log/master" | grep --line-buffered "Leave Announcement"
+```
+> (Tip: You can easily pipe this output further into a simple shell script that triggers a Discord or webhook notification every time a player joins your server!)
+
+#### Example 3: The Asynchronous RPC (Command & Capture)
+Because the Core completely decouples STDIN and STDOUT, you cannot get the result of a game command directly from the `/api/command` response. Instead, you build a lightweight Asynchronous RPC.
+
+Here is a 3-line Bash script demonstrating how to inject a Lua command and intercept its output from the waterfall:
+
+```bash
+#!/bin/bash
+
+# 1. Start the SSE listener in the background, filtering for our custom marker "MyCustomRPC"
+curl -sN -H "Accept: text/event-stream" "http://127.0.0.1:20888/api/log/master" | grep --line-buffered "MyCustomRPC" | grep -v --line-buffered "RemoteCommandInput" &
+
+# Store the background process ID so we can kill it later (optional)
+LISTENER_PID=$!
+
+# Wait a split second to ensure the SSE connection is established
+sleep 1
+
+# 2. Fire a valid Lua payload into the engine. 
+# We iterate through the client table, filter out the dedicated server's ghost "[Host]" entity, 
+# and print each real player's name with our marker.
+curl -X POST "http://127.0.0.1:20888/api/command?target=master" -d 'for _, v in ipairs(TheNet:GetClientTable()) do if v.name ~= "[Host]" then print("MyCustomRPC:", v.name) end end'
+
+# 3. Watch your terminal! The background listener will instantly catch and print the real connected players.
+# cleanup: kill $LISTENER_PID
+```
+> (Concept: This is exactly how you build robust, language-agnostic Discord bots or automated Server Managers without ever touching the Go Core. Inject via POST, catch via SSE.)
