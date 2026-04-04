@@ -14,38 +14,38 @@ import (
 	"time"
 )
 
-type 状态锁 struct {
-	_    [64]byte
-	锁定状态 atomic.Uint32
-	_    [64]byte
+type StateLock struct {
+	_         [64]byte
+	LockState atomic.Uint32
+	_         [64]byte
 }
 
-var API唤醒通道 = make(chan struct{})
+var ApiWakeChan = make(chan struct{})
 
-var 文件读写原子锁 状态锁
+var FileIOGate StateLock
 
-var 接收缓冲池 = sync.Pool{
+var RxPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, 1024)
 		return &b
 	},
 }
 
-var json头 = []string{"application/json; charset=utf-8"}
-var plain头 = []string{"text/plain; charset=utf-8"}
-var html头 = []string{"text/html; charset=utf-8"}
+var JsonHead = []string{"application/json; charset=utf-8"}
+var PlainHead = []string{"text/plain; charset=utf-8"}
+var HtmlHead = []string{"text/html; charset=utf-8"}
 
-type 极速网关 struct{}
+type SonicGateway struct{}
 
-func (极速网关) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (SonicGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/events", "/api/epoch/master", "/api/epoch/caves", "/api/log/master", "/api/log/caves":
 	default:
-		控制器 := http.NewResponseController(w)
-		超时时间 := time.Now().Add(10 * time.Second)
+		Controller := http.NewResponseController(w)
+		vTimeout := time.Now().Add(10 * time.Second)
 
-		控制器.SetReadDeadline(超时时间)
-		控制器.SetWriteDeadline(超时时间)
+		Controller.SetReadDeadline(vTimeout)
+		Controller.SetWriteDeadline(vTimeout)
 	}
 
 	switch r.URL.Path {
@@ -83,41 +83,41 @@ func (极速网关) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func 启动本地api接口() {
-	api辅助协程生命周期, 探针取消 := context.WithCancel(context.Background())
-	defer 探针取消()
-	go 运行系统资源采集探针(api辅助协程生命周期)
-	if 全局配置.配置区2.启用主世界.Load() != 全局配置.配置区2.启用洞穴.Load() {
-		go 全局世代心跳(api辅助协程生命周期)
+func BootLocalApi() {
+	ApiGuardCtx, CancelProbe := context.WithCancel(context.Background())
+	defer CancelProbe()
+	go BootSysProbe(ApiGuardCtx)
+	if GlobalConf.Section2.EnableMaster.Load() != GlobalConf.Section2.EnableCaves.Load() {
+		go GlobalEpochPulse(ApiGuardCtx)
 	}
 
-	go 主世界日志广播中心(api辅助协程生命周期)
-	go 洞穴日志广播中心(api辅助协程生命周期)
+	go MasterLogBroadcastHub(ApiGuardCtx)
+	go CavesLogBroadcastHub(ApiGuardCtx)
 
-	接口地址 := 全局配置.配置区1.http接口
+	BindAddr := GlobalConf.Section1.HttpBind
 
-	if strings.HasPrefix(接口地址, "/") || strings.HasPrefix(接口地址, "./") || strings.HasSuffix(接口地址, ".sock") {
-		控制台合并输出换行(S2B("[api] gateway listening on unix: "), S2B(接口地址))
+	if strings.HasPrefix(BindAddr, "/") || strings.HasPrefix(BindAddr, "./") || strings.HasSuffix(BindAddr, ".sock") {
+		LogOutLn(S2B("[api] gateway listening on unix: "), S2B(BindAddr))
 	} else {
-		展示地址 := 接口地址
-		if strings.HasPrefix(展示地址, ":") {
-			展示地址 = "127.0.0.1" + 展示地址
-		} else if strings.HasPrefix(展示地址, "0.0.0.0:") {
-			展示地址 = strings.Replace(展示地址, "0.0.0.0:", "127.0.0.1:", 1)
+		ViewAddr := BindAddr
+		if strings.HasPrefix(ViewAddr, ":") {
+			ViewAddr = "127.0.0.1" + ViewAddr
+		} else if strings.HasPrefix(ViewAddr, "0.0.0.0:") {
+			ViewAddr = strings.Replace(ViewAddr, "0.0.0.0:", "127.0.0.1:", 1)
 		}
 
-		控制台合并输出换行(S2B("[api] gateway listening on: http://"), S2B(展示地址))
+		LogOutLn(S2B("[api] gateway listening on: http://"), S2B(ViewAddr))
 	}
 
-	var 扁平网关 极速网关
+	var FlatGateway SonicGateway
 
-	if err := 底层监听(全局配置.配置区1.http接口, 扁平网关); err != nil {
-		控制台合并输出换行(S2B("[fatal] gateway crashed: "), S2B(全局配置.配置区1.http接口))
+	if err := RawListen(GlobalConf.Section1.HttpBind, FlatGateway); err != nil {
+		LogOutLn(S2B("[fatal] gateway crashed: "), S2B(GlobalConf.Section1.HttpBind))
 	}
 }
 
 //go:embed ui.html
-var 面板HTML []byte
+var PanelHTML []byte
 
 func api_ui(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
@@ -126,64 +126,64 @@ func api_ui(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header()["Content-Type"] = html头
-	w.Write(面板HTML)
+	w.Header()["Content-Type"] = HtmlHead
+	w.Write(PanelHTML)
 }
 
 // 80697765                13.62 ns/op            0 B/op          0 allocs/op
 func api_status(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
-		http报错(w, 400, S2B(`{"status":"error", "message":"method not allowed (GET required)"}`))
+		HttpErr(w, 400, S2B(`{"status":"error", "message":"method not allowed (GET required)"}`))
 		return
 	}
 
-	报文指针 := 当前状态快照.Load()
-	if 报文指针 == nil {
+	PacketPtr := CurrStateSnap.Load()
+	if PacketPtr == nil {
 		w.Write(S2B(`{"status":"loading", "message":"probe warming up"}`))
 		return
 	}
 
-	w.Header()["Content-Type"] = json头
-	w.Write(*报文指针)
+	w.Header()["Content-Type"] = JsonHead
+	w.Write(*PacketPtr)
 }
 
-var sse头 = []string{"text/event-stream; charset=utf-8"}
-var noCache头 = []string{"no-cache"}
-var keepAlive头 = []string{"keep-alive"}
-var 跨域头 = []string{"*"}
+var SseHead = []string{"text/event-stream; charset=utf-8"}
+var NoCacheHead = []string{"no-cache"}
+var KeepAliveHead = []string{"keep-alive"}
+var CorsHead = []string{"*"}
 
-var sse观察者矩阵 sync.Map
+var SseObserverMatrix sync.Map
 
 func api_events(w http.ResponseWriter, r *http.Request) {
-	w.Header()["Content-Type"] = sse头
-	w.Header()["Cache-Control"] = noCache头
-	w.Header()["Connection"] = keepAlive头
-	w.Header()["Access-Control-Allow-Origin"] = 跨域头
+	w.Header()["Content-Type"] = SseHead
+	w.Header()["Cache-Control"] = NoCacheHead
+	w.Header()["Connection"] = KeepAliveHead
+	w.Header()["Access-Control-Allow-Origin"] = CorsHead
 
-	flusher, 强转成功 := w.(http.Flusher)
-	if !强转成功 {
-		http报错(w, 500, S2B(`{"status":"error", "message":"flusher not supported"}`))
+	flusher, CastOk := w.(http.Flusher)
+	if !CastOk {
+		HttpErr(w, 500, S2B(`{"status":"error", "message":"flusher not supported"}`))
 		return
 	}
 
-	客户端推送通道 := make(chan struct{}, 1)
-	sse观察者矩阵.Store(客户端推送通道, struct{}{})
+	ClientTxPipe := make(chan struct{}, 1)
+	SseObserverMatrix.Store(ClientTxPipe, struct{}{})
 
-	defer sse观察者矩阵.Delete(客户端推送通道)
+	defer SseObserverMatrix.Delete(ClientTxPipe)
 
-	客户端拔管 := r.Context().Done()
+	ForceDropClient := r.Context().Done()
 
 	for {
 		select {
-		case <-客户端拔管:
+		case <-ForceDropClient:
 			return
-		case <-客户端推送通道:
-			全局报文指针 := 当前状态快照.Load()
-			if 全局报文指针 == nil {
+		case <-ClientTxPipe:
+			GlobalPacketPtr := CurrStateSnap.Load()
+			if GlobalPacketPtr == nil {
 				continue
 			}
 			w.Write(S2B("data: "))
-			w.Write(*全局报文指针)
+			w.Write(*GlobalPacketPtr)
 			w.Write(S2B("\n\n"))
 			flusher.Flush()
 		}
@@ -191,290 +191,290 @@ func api_events(w http.ResponseWriter, r *http.Request) {
 }
 
 func api_epoch_master(w http.ResponseWriter, r *http.Request) {
-	w.Header()["Content-Type"] = sse头
-	w.Header()["Cache-Control"] = noCache头
-	w.Header()["Connection"] = keepAlive头
-	w.Header()["Access-Control-Allow-Origin"] = 跨域头
+	w.Header()["Content-Type"] = SseHead
+	w.Header()["Cache-Control"] = NoCacheHead
+	w.Header()["Connection"] = KeepAliveHead
+	w.Header()["Access-Control-Allow-Origin"] = CorsHead
 
-	冲刷器, 强转成功 := w.(http.Flusher)
-	if !强转成功 {
+	vFlusher, CastOk := w.(http.Flusher)
+	if !CastOk {
 		return
 	}
 
-	事件通道 := make(chan int64, 1)
-	主世界世代观察者.Store(事件通道, struct{}{})
-	defer 主世界世代观察者.Delete(事件通道)
+	EventBus := make(chan int64, 1)
+	MasterEpochWatcher.Store(EventBus, struct{}{})
+	defer MasterEpochWatcher.Delete(EventBus)
 
-	客户端拔管 := r.Context().Done()
+	ForceDropClient := r.Context().Done()
 
 	for {
 		select {
-		case <-客户端拔管:
+		case <-ForceDropClient:
 			return
-		case 世代 := <-事件通道:
+		case Epoch := <-EventBus:
 			w.Write(S2B("data: "))
-			w.Write(strconv.AppendInt(nil, 世代, 10))
+			w.Write(strconv.AppendInt(nil, Epoch, 10))
 			w.Write(S2B("\n\n"))
-			冲刷器.Flush()
+			vFlusher.Flush()
 		}
 	}
 }
 
 func api_epoch_caves(w http.ResponseWriter, r *http.Request) {
-	w.Header()["Content-Type"] = sse头
-	w.Header()["Cache-Control"] = noCache头
-	w.Header()["Connection"] = keepAlive头
-	w.Header()["Access-Control-Allow-Origin"] = 跨域头
+	w.Header()["Content-Type"] = SseHead
+	w.Header()["Cache-Control"] = NoCacheHead
+	w.Header()["Connection"] = KeepAliveHead
+	w.Header()["Access-Control-Allow-Origin"] = CorsHead
 
-	冲刷器, 强转成功 := w.(http.Flusher)
-	if !强转成功 {
+	vFlusher, CastOk := w.(http.Flusher)
+	if !CastOk {
 		return
 	}
 
-	事件通道 := make(chan int64, 1)
-	洞穴世代观察者.Store(事件通道, struct{}{})
-	defer 洞穴世代观察者.Delete(事件通道)
+	EventBus := make(chan int64, 1)
+	CavesEpochWatcher.Store(EventBus, struct{}{})
+	defer CavesEpochWatcher.Delete(EventBus)
 
-	客户端拔管 := r.Context().Done()
+	ForceDropClient := r.Context().Done()
 
 	for {
 		select {
-		case <-客户端拔管:
+		case <-ForceDropClient:
 			return
-		case 世代 := <-事件通道:
+		case Epoch := <-EventBus:
 			w.Write(S2B("data: "))
-			w.Write(strconv.AppendInt(nil, 世代, 10))
+			w.Write(strconv.AppendInt(nil, Epoch, 10))
 			w.Write(S2B("\n\n"))
-			冲刷器.Flush()
+			vFlusher.Flush()
 		}
 	}
 }
 
-var 命令api原子锁 状态锁
+var ApiCmdGate StateLock
 
 func api_command(w http.ResponseWriter, r *http.Request) {
-	if !命令api原子锁.锁定状态.CompareAndSwap(0, 1) {
-		http报错(w, 423, S2B(`{"status":"error"}`))
+	if !ApiCmdGate.LockState.CompareAndSwap(0, 1) {
+		HttpErr(w, 423, S2B(`{"status":"error"}`))
 		return
 	}
-	defer 命令api原子锁.锁定状态.Store(0)
+	defer ApiCmdGate.LockState.Store(0)
 
 	if r.Method != "POST" {
-		http报错(w, 405, S2B(`{"status":"error", "message":"method not allowed (POST required)"}`))
+		HttpErr(w, 405, S2B(`{"status":"error", "message":"method not allowed (POST required)"}`))
 		return
 	}
 
-	命令目标 := r.URL.Query().Get("target")
-	if 命令目标 != "" {
-		命令目标 = strings.ToLower(命令目标)
+	CmdTarget := r.URL.Query().Get("target")
+	if CmdTarget != "" {
+		CmdTarget = strings.ToLower(CmdTarget)
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1024)
 
-	池化指针 := 接收缓冲池.Get().(*[]byte)
-	临时缓冲 := *池化指针
+	PooledPtr := RxPool.Get().(*[]byte)
+	TmpBuffer := *PooledPtr
 
 	defer func() {
-		clear(临时缓冲)
-		接收缓冲池.Put(池化指针)
+		clear(TmpBuffer)
+		RxPool.Put(PooledPtr)
 	}()
 
-	读取总数 := 0
+	TotalRead := 0
 	for {
-		if 读取总数 == len(临时缓冲) {
-			http报错(w, 413, S2B(`{"status":"error", "message":"payload too large"}`))
+		if TotalRead == len(TmpBuffer) {
+			HttpErr(w, 413, S2B(`{"status":"error", "message":"payload too large"}`))
 			return
 		}
 
-		n, err := r.Body.Read(临时缓冲[读取总数:])
-		读取总数 += n
+		n, err := r.Body.Read(TmpBuffer[TotalRead:])
+		TotalRead += n
 
 		if err != nil {
 			if err == io.EOF {
 				break
 			}
-			http报错(w, 400, S2B(`{"status":"error", "message":"bad request or payload too large"}`))
+			HttpErr(w, 400, S2B(`{"status":"error", "message":"bad request or payload too large"}`))
 			return
 		}
 	}
 
-	if 读取总数 == 0 {
-		接收缓冲池.Put(池化指针)
-		http报错(w, 400, []byte(`{"status":"error", "message":"empty payload"}`))
+	if TotalRead == 0 {
+		RxPool.Put(PooledPtr)
+		HttpErr(w, 400, []byte(`{"status":"error", "message":"empty payload"}`))
 		return
 	}
 
-	缺换行符 := 临时缓冲[读取总数-1] != '\n'
-	最终长度 := 读取总数
-	if 缺换行符 {
-		最终长度++
+	MissingNL := TmpBuffer[TotalRead-1] != '\n'
+	FinalLen := TotalRead
+	if MissingNL {
+		FinalLen++
 	}
 
-	最终指令 := make([]byte, 最终长度)
-	copy(最终指令, 临时缓冲[:读取总数])
-	if 缺换行符 {
-		最终指令[最终长度-1] = '\n'
+	FinalCmd := make([]byte, FinalLen)
+	copy(FinalCmd, TmpBuffer[:TotalRead])
+	if MissingNL {
+		FinalCmd[FinalLen-1] = '\n'
 	}
 
-	clear(临时缓冲[:读取总数])
-	接收缓冲池.Put(池化指针)
+	clear(TmpBuffer[:TotalRead])
+	RxPool.Put(PooledPtr)
 
-	投递成功 := false
-	switch 命令目标 {
+	DeliverOk := false
+	switch CmdTarget {
 	case "caves":
 		select {
-		case 洞穴命令通道 <- 最终指令:
-			投递成功 = true
+		case CavesCmdPipe <- FinalCmd:
+			DeliverOk = true
 		default:
 		}
 	case "all":
-		主世界OK := false
-		洞穴OK := false
+		MasterOk := false
+		CavesOk := false
 
 		select {
-		case 主世界命令通道 <- 最终指令:
-			主世界OK = true
+		case MasterCmdPipe <- FinalCmd:
+			MasterOk = true
 		default:
 		}
 
 		select {
-		case 洞穴命令通道 <- 最终指令:
-			洞穴OK = true
+		case CavesCmdPipe <- FinalCmd:
+			CavesOk = true
 		default:
 		}
 
-		if 主世界OK && 洞穴OK {
-			投递成功 = true
-		} else if 主世界OK && !洞穴OK {
-			http报错(w, 503, []byte(`{"status":"warning", "message":"master ack, caves dropped (congestion)"}`))
+		if MasterOk && CavesOk {
+			DeliverOk = true
+		} else if MasterOk && !CavesOk {
+			HttpErr(w, 503, []byte(`{"status":"warning", "message":"master ack, caves dropped (congestion)"}`))
 			return
-		} else if !主世界OK && 洞穴OK {
-			http报错(w, 503, []byte(`{"status":"caves ack, master dropped (congestion)"}`))
+		} else if !MasterOk && CavesOk {
+			HttpErr(w, 503, []byte(`{"status":"caves ack, master dropped (congestion)"}`))
 			return
 		} else {
-			投递成功 = false
+			DeliverOk = false
 		}
 	case "master", "":
 		select {
-		case 主世界命令通道 <- 最终指令:
-			投递成功 = true
+		case MasterCmdPipe <- FinalCmd:
+			DeliverOk = true
 		default:
 		}
 	default:
-		http报错(w, 400, []byte(`{"status":"error", "message":"invalid target"}`))
+		HttpErr(w, 400, []byte(`{"status":"error", "message":"invalid target"}`))
 		return
 	}
 
-	if !投递成功 {
-		http报错(w, 503, []byte(`{"status":"error", "message":"pipeline congested, payload dropped"}`))
+	if !DeliverOk {
+		HttpErr(w, 503, []byte(`{"status":"error", "message":"pipeline congested, payload dropped"}`))
 		return
 	}
 
-	w.Header()["Content-Type"] = json头
+	w.Header()["Content-Type"] = JsonHead
 	w.Write(S2B(`{"status": "success"}`))
 }
 
 func api_start(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		http报错(w, 405, S2B(`{"status":"error", "message":"method not allowed (POST required)"}`))
+		HttpErr(w, 405, S2B(`{"status":"error", "message":"method not allowed (POST required)"}`))
 		return
 	}
 	select {
-	case API唤醒通道 <- struct{}{}:
-		全局配置.原子锁.允许服务器运行原子锁.Store(true)
+	case ApiWakeChan <- struct{}{}:
+		GlobalConf.AtomicGate.ServerRunGate.Store(true)
 	default:
-		http报错(w, 409, S2B(`{"status":"error", "message":"start blocked"}`))
+		HttpErr(w, 409, S2B(`{"status":"error", "message":"start blocked"}`))
 		return
 	}
-	w.Header()["Content-Type"] = json头
+	w.Header()["Content-Type"] = JsonHead
 	w.Write(S2B(`{"status": "success"}`))
 }
 
 func api_stop(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		http报错(w, 405, S2B(`{"status":"error", "message":"method not allowed (POST required)"}`))
+		HttpErr(w, 405, S2B(`{"status":"error", "message":"method not allowed (POST required)"}`))
 		return
 	}
-	全局配置.原子锁.允许服务器运行原子锁.Store(false)
+	GlobalConf.AtomicGate.ServerRunGate.Store(false)
 
 	select {
-	case 动作总线 <- 动作_执行API强制关闭:
+	case ActionBus <- Action_ApiHalt:
 	default:
 	}
 
-	旧指针 := 全局局部生命周期终结.Load()
-	if 旧指针 != nil && 全局局部生命周期终结.CompareAndSwap(旧指针, nil) {
-		(*旧指针)()
+	StaleArtifact := EpochKillSwitch.Load()
+	if StaleArtifact != nil && EpochKillSwitch.CompareAndSwap(StaleArtifact, nil) {
+		(*StaleArtifact)()
 	}
 
-	w.Header()["Content-Type"] = json头
+	w.Header()["Content-Type"] = JsonHead
 	w.Write(S2B(`{"status": "success"}`))
 }
 
 func api_restart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		http报错(w, 405, S2B(`{"status":"error", "message":"method not allowed (POST required)"}`))
+		HttpErr(w, 405, S2B(`{"status":"error", "message":"method not allowed (POST required)"}`))
 		return
 	}
-	全局配置.原子锁.允许服务器运行原子锁.Store(true)
+	GlobalConf.AtomicGate.ServerRunGate.Store(true)
 
 	select {
-	case 动作总线 <- 动作_执行API强制关闭:
+	case ActionBus <- Action_ApiHalt:
 	default:
 	}
 
-	旧指针 := 全局局部生命周期终结.Load()
-	if 旧指针 != nil && 全局局部生命周期终结.CompareAndSwap(旧指针, nil) {
-		(*旧指针)()
+	StaleArtifact := EpochKillSwitch.Load()
+	if StaleArtifact != nil && EpochKillSwitch.CompareAndSwap(StaleArtifact, nil) {
+		(*StaleArtifact)()
 	}
 
 	select {
-	case API唤醒通道 <- struct{}{}:
+	case ApiWakeChan <- struct{}{}:
 	default:
 	}
 
-	w.Header()["Content-Type"] = json头
+	w.Header()["Content-Type"] = JsonHead
 	w.Write(S2B(`{"status": "success"}`))
 }
 
 func api_file_read(w http.ResponseWriter, r *http.Request) {
-	if !文件读写原子锁.锁定状态.CompareAndSwap(0, 1) {
-		http报错(w, 423, S2B(`{"status":"error"}`))
+	if !FileIOGate.LockState.CompareAndSwap(0, 1) {
+		HttpErr(w, 423, S2B(`{"status":"error"}`))
 		return
 	}
-	defer 文件读写原子锁.锁定状态.Store(0)
+	defer FileIOGate.LockState.Store(0)
 
 	if r.Method != "GET" {
-		http报错(w, 400, S2B(`{"status":"error", "message":"method not allowed (GET required)"}`))
+		HttpErr(w, 400, S2B(`{"status":"error", "message":"method not allowed (GET required)"}`))
 		return
 	}
 
-	目标 := strings.ToLower(r.URL.Query().Get("target"))
-	var 文件路径 string
+	Target := strings.ToLower(r.URL.Query().Get("target"))
+	var FilePath string
 
-	switch 目标 {
+	switch Target {
 	case "cluster":
-		文件路径 = filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "cluster.ini")
+		FilePath = filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "cluster.ini")
 	case "master_server":
-		文件路径 = filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "Master", "server.ini")
+		FilePath = filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "Master", "server.ini")
 	case "caves_server":
-		文件路径 = filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "Caves", "server.ini")
+		FilePath = filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "Caves", "server.ini")
 	case "master_world":
-		文件路径 = filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "Master", "worldgenoverride.lua")
+		FilePath = filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "Master", "worldgenoverride.lua")
 	case "caves_world":
-		文件路径 = filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "Caves", "worldgenoverride.lua")
+		FilePath = filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "Caves", "worldgenoverride.lua")
 	case "master_mod":
-		文件路径 = filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "Master", "modoverrides.lua")
+		FilePath = filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "Master", "modoverrides.lua")
 	case "caves_mod":
-		文件路径 = filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "Caves", "modoverrides.lua")
+		FilePath = filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "Caves", "modoverrides.lua")
 	case "setup":
-		文件路径 = 全局配置.配置区1.模组Lua更新文件目标路径
+		FilePath = GlobalConf.Section1.ModLuaTarget
 	default:
-		http报错(w, 400, []byte(`{"status":"error", "message":"无效的 target 参数"}`))
+		HttpErr(w, 400, []byte(`{"status":"error", "message":"无效的 target 参数"}`))
 		return
 	}
 
-	f, err := os.Open(文件路径)
+	f, err := os.Open(FilePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Write([]byte(""))
@@ -484,7 +484,7 @@ func api_file_read(w http.ResponseWriter, r *http.Request) {
 
 	if stat, err := f.Stat(); err == nil {
 		if stat.Size() > 1024*1024 {
-			http报错(w, 413, []byte(`{"status":"error", "message":"file > 1MB, stream rejected"}`))
+			HttpErr(w, 413, []byte(`{"status":"error", "message":"file > 1MB, stream rejected"}`))
 			return
 		}
 		w.Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
@@ -495,132 +495,132 @@ func api_file_read(w http.ResponseWriter, r *http.Request) {
 }
 
 func api_file_write(w http.ResponseWriter, r *http.Request) {
-	if !文件读写原子锁.锁定状态.CompareAndSwap(0, 1) {
-		http报错(w, 423, S2B(`{"status":"error"}`))
+	if !FileIOGate.LockState.CompareAndSwap(0, 1) {
+		HttpErr(w, 423, S2B(`{"status":"error"}`))
 		return
 	}
-	defer 文件读写原子锁.锁定状态.Store(0)
+	defer FileIOGate.LockState.Store(0)
 
 	if r.Method != "POST" {
-		http报错(w, 405, S2B(`{"status":"error", "message":"method not allowed (POST required)"}`))
+		HttpErr(w, 405, S2B(`{"status":"error", "message":"method not allowed (POST required)"}`))
 		return
 	}
 
 	if r.ContentLength == 0 {
-		http报错(w, 400, []byte(`{"status":"error", "message":"empty payload rejected"}`))
+		HttpErr(w, 400, []byte(`{"status":"error", "message":"empty payload rejected"}`))
 		return
 	}
 
-	目标 := strings.ToLower(r.URL.Query().Get("target"))
-	var 目标写入路径 []string
+	Target := strings.ToLower(r.URL.Query().Get("target"))
+	var TargetWritePath []string
 
-	switch 目标 {
+	switch Target {
 	case "cluster":
-		目标写入路径 = append(目标写入路径, filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "cluster.ini"))
+		TargetWritePath = append(TargetWritePath, filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "cluster.ini"))
 	case "master_server":
-		目标写入路径 = append(目标写入路径, filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "Master", "server.ini"))
+		TargetWritePath = append(TargetWritePath, filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "Master", "server.ini"))
 	case "caves_server":
-		目标写入路径 = append(目标写入路径, filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "Caves", "server.ini"))
+		TargetWritePath = append(TargetWritePath, filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "Caves", "server.ini"))
 	case "master_world":
-		目标写入路径 = append(目标写入路径, filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "Master", "worldgenoverride.lua"))
+		TargetWritePath = append(TargetWritePath, filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "Master", "worldgenoverride.lua"))
 	case "caves_world":
-		目标写入路径 = append(目标写入路径, filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "Caves", "worldgenoverride.lua"))
+		TargetWritePath = append(TargetWritePath, filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "Caves", "worldgenoverride.lua"))
 
 	case "mod":
-		if 全局配置.配置区2.启用主世界.Load() {
-			目标写入路径 = append(目标写入路径, filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "Master", "modoverrides.lua"))
+		if GlobalConf.Section2.EnableMaster.Load() {
+			TargetWritePath = append(TargetWritePath, filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "Master", "modoverrides.lua"))
 		}
-		if 全局配置.配置区2.启用洞穴.Load() {
-			目标写入路径 = append(目标写入路径, filepath.Join(全局配置.配置区1.存档根目录, "DoNotStarveTogether", 全局配置.配置区1.存档名称, "Caves", "modoverrides.lua"))
+		if GlobalConf.Section2.EnableCaves.Load() {
+			TargetWritePath = append(TargetWritePath, filepath.Join(GlobalConf.Section1.StorageRoot, "DoNotStarveTogether", GlobalConf.Section1.ClusterName, "Caves", "modoverrides.lua"))
 		}
 	case "setup":
-		目标写入路径 = append(目标写入路径, 全局配置.配置区1.模组Lua更新文件目标路径)
+		TargetWritePath = append(TargetWritePath, GlobalConf.Section1.ModLuaTarget)
 
 	default:
-		http报错(w, 400, []byte(`{"status":"error", "message":"invalid target"}`))
+		HttpErr(w, 400, []byte(`{"status":"error", "message":"invalid target"}`))
 		return
 	}
 
-	if len(目标写入路径) == 0 {
-		http报错(w, 400, []byte(`{"status":"error", "message":"no active shard configured on this node"}`))
+	if len(TargetWritePath) == 0 {
+		HttpErr(w, 400, []byte(`{"status":"error", "message":"no active shard configured on this node"}`))
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1024*1024)
 
-	if err := 原子写文件流(目标写入路径[0], r.Body); err != 0 {
-		控制台合并输出换行(S2B("致命异常: 流式落盘失败 "), S2B(filepath.Base(目标写入路径[0])), (S2B(" ")))
-		http报错(w, 500, []byte(`{"status":"error", "message":"primary write failed"}`))
+	if err := AtomicWriteStream(TargetWritePath[0], r.Body); err != 0 {
+		LogOutLn(S2B("致命异常: 流式落盘失败 "), S2B(filepath.Base(TargetWritePath[0])), (S2B(" ")))
+		HttpErr(w, 500, []byte(`{"status":"error", "message":"primary write failed"}`))
 		return
 	}
 
-	if len(目标写入路径) > 1 {
-		for i := 1; i < len(目标写入路径); i++ {
-			if _, err := 复制文件(目标写入路径[0], 目标写入路径[i]); err != 0 {
-				控制台合并输出换行(S2B("[sys] clone failed "), S2B(filepath.Base(目标写入路径[i])))
-				http报错(w, 500, []byte(`{"status":"error", "message":"clone to secondary failed"}`))
+	if len(TargetWritePath) > 1 {
+		for i := 1; i < len(TargetWritePath); i++ {
+			if _, err := CloneFile(TargetWritePath[0], TargetWritePath[i]); err != 0 {
+				LogOutLn(S2B("[sys] clone failed "), S2B(filepath.Base(TargetWritePath[i])))
+				HttpErr(w, 500, []byte(`{"status":"error", "message":"clone to secondary failed"}`))
 				return
 			}
 		}
 	}
 
-	w.Header()["Content-Type"] = json头
+	w.Header()["Content-Type"] = JsonHead
 	w.Write([]byte(`{"status":"success", "message":"zero-copy stream write complete"}`))
 }
 
 func api_update_state(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		http报错(w, 405, S2B(`{"status":"error", "message":"method not allowed (POST required)"}`))
+		HttpErr(w, 405, S2B(`{"status":"error", "message":"method not allowed (POST required)"}`))
 		return
 	}
 
-	池化指针 := 接收缓冲池.Get().(*[]byte)
-	临时缓冲 := *池化指针
+	PooledPtr := RxPool.Get().(*[]byte)
+	TmpBuffer := *PooledPtr
 
 	defer func() {
-		clear(临时缓冲)
-		接收缓冲池.Put(池化指针)
+		clear(TmpBuffer)
+		RxPool.Put(PooledPtr)
 	}()
 
-	读取总数 := 0
+	TotalRead := 0
 	for {
-		if 读取总数 == len(临时缓冲) {
-			http报错(w, 413, S2B(`{"status":"error", "message":"Payload Too Large"}`))
+		if TotalRead == len(TmpBuffer) {
+			HttpErr(w, 413, S2B(`{"status":"error", "message":"Payload Too Large"}`))
 			return
 		}
 
-		n, err := r.Body.Read(临时缓冲[读取总数:])
-		读取总数 += n
+		n, err := r.Body.Read(TmpBuffer[TotalRead:])
+		TotalRead += n
 		if err != nil {
 			break
 		}
 	}
-	if 读取总数 == 0 {
-		http报错(w, 400, S2B(`{"status":"error"}`))
+	if TotalRead == 0 {
+		HttpErr(w, 400, S2B(`{"status":"error"}`))
 		return
 	}
 
-	纯数据 := 临时缓冲[:读取总数]
-	游标 := 0
-	总长 := 读取总数
+	RawData := TmpBuffer[:TotalRead]
+	vCursor := 0
+	TotalLen := TotalRead
 
-	for 游标 < 总长 {
-		key起始 := 游标
-		for 游标 < 总长 && 纯数据[游标] != '=' {
-			游标++
+	for vCursor < TotalLen {
+		KeyStart := vCursor
+		for vCursor < TotalLen && RawData[vCursor] != '=' {
+			vCursor++
 		}
-		if 游标 >= 总长 {
+		if vCursor >= TotalLen {
 			break
 		}
-		key := 纯数据[key起始:游标]
-		游标++
+		key := RawData[KeyStart:vCursor]
+		vCursor++
 
-		val起始 := 游标
-		for 游标 < 总长 && 纯数据[游标] != '&' && 纯数据[游标] != ';' && 纯数据[游标] != '\n' {
-			游标++
+		ValStart := vCursor
+		for vCursor < TotalLen && RawData[vCursor] != '&' && RawData[vCursor] != ';' && RawData[vCursor] != '\n' {
+			vCursor++
 		}
-		val := 纯数据[val起始:游标]
-		游标++
+		val := RawData[ValStart:vCursor]
+		vCursor++
 
 		if len(key) == 0 || len(val) == 0 {
 			continue
@@ -628,284 +628,284 @@ func api_update_state(w http.ResponseWriter, r *http.Request) {
 
 		switch string(key) {
 		case "players":
-			全局配置.游戏内状态.在线玩家人数.Store(解析API无符号整型(val))
+			GlobalConf.GameState.OnlinePlayers.Store(ParseApiUint(val))
 		case "cycles":
-			全局配置.游戏内状态.世界天数.Store(解析API无符号整型(val))
+			GlobalConf.GameState.WorldDays.Store(ParseApiUint(val))
 		case "season":
-			全局配置.游戏内状态.当前季节.Store(解析API无符号整型(val))
+			GlobalConf.GameState.CurrSeason.Store(ParseApiUint(val))
 		case "phase":
-			全局配置.游戏内状态.昼夜阶段.Store(解析API无符号整型(val))
+			GlobalConf.GameState.DayPhase.Store(ParseApiUint(val))
 		case "rem_days":
-			全局配置.游戏内状态.季节剩余天数.Store(解析API无符号整型(val))
+			GlobalConf.GameState.SeasonDaysLeft.Store(ParseApiUint(val))
 		case "temp":
-			全局配置.游戏内状态.绝对温度.Store(解析API有符号整型(val))
+			GlobalConf.GameState.AbsTemp.Store(ParseApiInt(val))
 
 		// bool
 		case "is_raining":
-			全局配置.游戏内状态.是否下雨.Store(len(val) > 0 && (val[0] == '1' || val[0] == 't' || val[0] == 'T'))
+			GlobalConf.GameState.IsRaining.Store(len(val) > 0 && (val[0] == '1' || val[0] == 't' || val[0] == 'T'))
 		case "is_snowing":
-			全局配置.游戏内状态.是否下雪.Store(len(val) > 0 && (val[0] == '1' || val[0] == 't' || val[0] == 'T'))
+			GlobalConf.GameState.IsSnowing.Store(len(val) > 0 && (val[0] == '1' || val[0] == 't' || val[0] == 'T'))
 		case "alter_awake":
-			全局配置.游戏内状态.天体唤醒.Store(len(val) > 0 && (val[0] == '1' || val[0] == 't' || val[0] == 'T'))
+			GlobalConf.GameState.CelestialWake.Store(len(val) > 0 && (val[0] == '1' || val[0] == 't' || val[0] == 'T'))
 
 		case "moon_phase":
-			全局配置.游戏内状态.月相状态.Store(解析API无符号整型(val))
+			GlobalConf.GameState.MoonState.Store(ParseApiUint(val))
 		case "nightmare":
-			全局配置.游戏内状态.暴动状态.Store(解析API无符号整型(val))
+			GlobalConf.GameState.NightmareState.Store(ParseApiUint(val))
 
 		// boss
 		case "deerclops":
-			全局配置.游戏内状态.巨鹿倒计时.Store(解析API无符号整型(val))
+			GlobalConf.GameState.DeerclopsTimer.Store(ParseApiUint(val))
 		case "bearger":
-			全局配置.游戏内状态.熊大倒计时.Store(解析API无符号整型(val))
+			GlobalConf.GameState.BeargerTimer.Store(ParseApiUint(val))
 		case "moose":
-			全局配置.游戏内状态.大鹅倒计时.Store(解析API无符号整型(val))
+			GlobalConf.GameState.MooseGooseTimer.Store(ParseApiUint(val))
 		case "dragonfly":
-			全局配置.游戏内状态.龙蝇倒计时.Store(解析API无符号整型(val))
+			GlobalConf.GameState.DragonflyTimer.Store(ParseApiUint(val))
 		case "beequeen":
-			全局配置.游戏内状态.蜂后倒计时.Store(解析API无符号整型(val))
+			GlobalConf.GameState.BeeQueenTimer.Store(ParseApiUint(val))
 		case "klaus":
-			全局配置.游戏内状态.克劳斯倒计时.Store(解析API无符号整型(val))
+			GlobalConf.GameState.KlausTimer.Store(ParseApiUint(val))
 		case "toadstool":
-			全局配置.游戏内状态.蛤蟆倒计时.Store(解析API无符号整型(val))
+			GlobalConf.GameState.ToadstoolTimer.Store(ParseApiUint(val))
 		case "fuelweaver":
-			全局配置.游戏内状态.织影者倒计时.Store(解析API无符号整型(val))
+			GlobalConf.GameState.FuelweaverTimer.Store(ParseApiUint(val))
 		case "malbatross":
-			全局配置.游戏内状态.邪天翁倒计时.Store(解析API无符号整型(val))
+			GlobalConf.GameState.MalbatrossTimer.Store(ParseApiUint(val))
 		case "lordfruitfly":
-			全局配置.游戏内状态.果蝇王倒计时.Store(解析API无符号整型(val))
+			GlobalConf.GameState.FruitFlyLordTimer.Store(ParseApiUint(val))
 		case "antlion":
-			全局配置.游戏内状态.蚁狮踩踏分钟倒计时.Store(解析API无符号整型(val))
+			GlobalConf.GameState.AntlionStompMinTimer.Store(ParseApiUint(val))
 		}
 	}
 
-	w.Header()["Content-Type"] = json头
+	w.Header()["Content-Type"] = JsonHead
 	w.Write(S2B(`{"status":"success"}`))
 }
 
-type 广播日志块 struct {
-	_   [64]byte
-	引用数 atomic.Int32
-	_   [64]byte
-	数据  []byte
+type BroadcastLogChunk struct {
+	_        [64]byte
+	RefCount atomic.Int32
+	_        [64]byte
+	vData    []byte
 }
 
-var 日志广播池 = sync.Pool{
+var LogBroadcastPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, 0, 1024)
-		return &广播日志块{数据: b}
+		return &BroadcastLogChunk{vData: b}
 	},
 }
 
-var 主世界日志连接数 atomic.Int32
-var 主世界中央日志管道 = make(chan *广播日志块, 1024)
-var 主世界日志订阅 = make(chan chan *广播日志块, 128)
-var 主世界日志退订 = make(chan chan *广播日志块, 128)
+var MasterLogConnCount atomic.Int32
+var MasterCentralLogChan = make(chan *BroadcastLogChunk, 1024)
+var MasterLogSubChan = make(chan chan *BroadcastLogChunk, 128)
+var MasterLogUnsubChan = make(chan chan *BroadcastLogChunk, 128)
 
-var 洞穴日志连接数 atomic.Int32
-var 洞穴中央日志管道 = make(chan *广播日志块, 1024)
-var 洞穴日志订阅 = make(chan chan *广播日志块, 128)
-var 洞穴日志退订 = make(chan chan *广播日志块, 128)
+var CavesLogConnCount atomic.Int32
+var CavesCentralLogChan = make(chan *BroadcastLogChunk, 1024)
+var CavesLogSubChan = make(chan chan *BroadcastLogChunk, 128)
+var CavesLogUnsubChan = make(chan chan *BroadcastLogChunk, 128)
 
 func api_log_master(w http.ResponseWriter, r *http.Request) {
-	w.Header()["Content-Type"] = sse头
-	w.Header()["Cache-Control"] = noCache头
-	w.Header()["Connection"] = keepAlive头
-	w.Header()["Access-Control-Allow-Origin"] = 跨域头
+	w.Header()["Content-Type"] = SseHead
+	w.Header()["Cache-Control"] = NoCacheHead
+	w.Header()["Connection"] = KeepAliveHead
+	w.Header()["Access-Control-Allow-Origin"] = CorsHead
 
-	冲刷器, 强转成功 := w.(http.Flusher)
-	if !强转成功 {
+	vFlusher, CastOk := w.(http.Flusher)
+	if !CastOk {
 		return
 	}
 
-	事件通道 := make(chan *广播日志块, 256)
-	主世界日志连接数.Add(1)
+	EventBus := make(chan *BroadcastLogChunk, 256)
+	MasterLogConnCount.Add(1)
 
-	主世界日志订阅 <- 事件通道
+	MasterLogSubChan <- EventBus
 
 	defer func() {
-		主世界日志连接数.Add(-1)
+		MasterLogConnCount.Add(-1)
 
-		主世界日志退订 <- 事件通道
+		MasterLogUnsubChan <- EventBus
 
-		for 块 := range 事件通道 {
-			if 块.引用数.Add(-1) == 0 {
-				日志广播池.Put(块)
+		for vChunk := range EventBus {
+			if vChunk.RefCount.Add(-1) == 0 {
+				LogBroadcastPool.Put(vChunk)
 			}
 		}
 	}()
 
-	客户端拔管 := r.Context().Done()
+	ForceDropClient := r.Context().Done()
 
 	rc := http.NewResponseController(w)
 
 	for {
 		select {
-		case <-客户端拔管:
+		case <-ForceDropClient:
 			return
-		case 块 := <-事件通道:
+		case vChunk := <-EventBus:
 			rc.SetWriteDeadline(time.Now().Add(2 * time.Second))
 
-			_, err := w.Write(块.数据)
+			_, err := w.Write(vChunk.vData)
 
-			if 块.引用数.Add(-1) == 0 {
-				日志广播池.Put(块)
+			if vChunk.RefCount.Add(-1) == 0 {
+				LogBroadcastPool.Put(vChunk)
 			}
 
 			if err != nil {
 				return
 			}
-			冲刷器.Flush()
+			vFlusher.Flush()
 		}
 	}
 }
 
 func api_log_caves(w http.ResponseWriter, r *http.Request) {
-	w.Header()["Content-Type"] = sse头
-	w.Header()["Cache-Control"] = noCache头
-	w.Header()["Connection"] = keepAlive头
-	w.Header()["Access-Control-Allow-Origin"] = 跨域头
+	w.Header()["Content-Type"] = SseHead
+	w.Header()["Cache-Control"] = NoCacheHead
+	w.Header()["Connection"] = KeepAliveHead
+	w.Header()["Access-Control-Allow-Origin"] = CorsHead
 
-	冲刷器, 强转成功 := w.(http.Flusher)
-	if !强转成功 {
+	vFlusher, CastOk := w.(http.Flusher)
+	if !CastOk {
 		return
 	}
 
-	事件通道 := make(chan *广播日志块, 256)
-	洞穴日志连接数.Add(1)
+	EventBus := make(chan *BroadcastLogChunk, 256)
+	CavesLogConnCount.Add(1)
 
-	洞穴日志订阅 <- 事件通道
+	CavesLogSubChan <- EventBus
 
 	defer func() {
-		洞穴日志连接数.Add(-1)
+		CavesLogConnCount.Add(-1)
 
-		洞穴日志退订 <- 事件通道
+		CavesLogUnsubChan <- EventBus
 
-		for 块 := range 事件通道 {
-			if 块.引用数.Add(-1) == 0 {
-				日志广播池.Put(块)
+		for vChunk := range EventBus {
+			if vChunk.RefCount.Add(-1) == 0 {
+				LogBroadcastPool.Put(vChunk)
 			}
 		}
 	}()
 
-	客户端拔管 := r.Context().Done()
+	ForceDropClient := r.Context().Done()
 
 	rc := http.NewResponseController(w)
 
 	for {
 		select {
-		case <-客户端拔管:
+		case <-ForceDropClient:
 			return
-		case 块 := <-事件通道:
+		case vChunk := <-EventBus:
 			rc.SetWriteDeadline(time.Now().Add(2 * time.Second))
 
-			_, err := w.Write(块.数据)
+			_, err := w.Write(vChunk.vData)
 
-			if 块.引用数.Add(-1) == 0 {
-				日志广播池.Put(块)
+			if vChunk.RefCount.Add(-1) == 0 {
+				LogBroadcastPool.Put(vChunk)
 			}
 
 			if err != nil {
 				return
 			}
-			冲刷器.Flush()
+			vFlusher.Flush()
 		}
 	}
 }
 
-func 解析API无符号整型(载荷 []byte) uint32 {
-	if len(载荷) == 0 {
+func ParseApiUint(Payload []byte) uint32 {
+	if len(Payload) == 0 {
 		return 4294967295
 	}
-	var 结果 uint32 = 0
-	有效数字 := false
-	for _, 字符 := range 载荷 {
-		if 字符 >= '0' && 字符 <= '9' {
-			结果 = 结果*10 + uint32(字符-'0')
-			有效数字 = true
+	var Result uint32 = 0
+	ValidNum := false
+	for _, Char := range Payload {
+		if Char >= '0' && Char <= '9' {
+			Result = Result*10 + uint32(Char-'0')
+			ValidNum = true
 		} else {
 			return 4294967295
 		}
 	}
-	if !有效数字 {
+	if !ValidNum {
 		return 4294967295
 	}
-	return 结果
+	return Result
 }
 
-func 解析API有符号整型(载荷 []byte) int32 {
-	if len(载荷) == 0 {
+func ParseApiInt(Payload []byte) int32 {
+	if len(Payload) == 0 {
 		return 2147483647
 	}
-	负数 := false
-	起始位置 := 0
-	if 载荷[0] == '-' {
-		负数 = true
-		起始位置 = 1
+	IsNegative := false
+	StartPos := 0
+	if Payload[0] == '-' {
+		IsNegative = true
+		StartPos = 1
 	}
 
-	var 结果 int32 = 0
-	有效数字 := false
-	for i := 起始位置; i < len(载荷); i++ {
-		字符 := 载荷[i]
-		if 字符 >= '0' && 字符 <= '9' {
-			结果 = 结果*10 + int32(字符-'0')
-			有效数字 = true
+	var Result int32 = 0
+	ValidNum := false
+	for i := StartPos; i < len(Payload); i++ {
+		Char := Payload[i]
+		if Char >= '0' && Char <= '9' {
+			Result = Result*10 + int32(Char-'0')
+			ValidNum = true
 		} else {
 			return 2147483647
 		}
 	}
-	if !有效数字 {
+	if !ValidNum {
 		return 2147483647
 	}
-	if 负数 {
-		return -结果
+	if IsNegative {
+		return -Result
 	}
-	return 结果
+	return Result
 }
 
-func http报错(w http.ResponseWriter, 状态码 int, 响应体 []byte) {
-	w.Header()["Content-Type"] = json头
-	w.WriteHeader(状态码)
-	w.Write(响应体)
+func HttpErr(w http.ResponseWriter, vStatusCode int, RespBody []byte) {
+	w.Header()["Content-Type"] = JsonHead
+	w.WriteHeader(vStatusCode)
+	w.Write(RespBody)
 }
 
-func 原子写文件流(目标路径 string, 源流 io.Reader) uint8 {
-	目标目录 := filepath.Dir(目标路径)
-	os.MkdirAll(目标目录, 0755)
+func AtomicWriteStream(TargetPath string, SrcStream io.Reader) uint8 {
+	TargetDir := filepath.Dir(TargetPath)
+	os.MkdirAll(TargetDir, 0755)
 
-	临时文件, err := os.CreateTemp(目标目录, "tmp_stream_*")
+	TempFile, err := os.CreateTemp(TargetDir, "tmp_stream_*")
 	if err != nil {
-		控制台合并输出换行(E2B(err))
+		LogOutLn(E2B(err))
 		return 128
 	}
-	临时路径 := 临时文件.Name()
+	TmpPath := TempFile.Name()
 
-	defer os.Remove(临时路径)
+	defer os.Remove(TmpPath)
 
-	_, err = io.Copy(临时文件, 源流)
+	_, err = io.Copy(TempFile, SrcStream)
 	if err != nil {
-		临时文件.Close()
-		控制台合并输出换行(S2B("[sys] stream copy interrupted: "), E2B(err))
+		TempFile.Close()
+		LogOutLn(S2B("[sys] stream copy interrupted: "), E2B(err))
 		return 129
 	}
 
-	err = 临时文件.Sync()
+	err = TempFile.Sync()
 	if err != nil {
-		临时文件.Close()
-		控制台合并输出换行(E2B(err))
+		TempFile.Close()
+		LogOutLn(E2B(err))
 		return 130
 	}
 
-	err = 临时文件.Close()
+	err = TempFile.Close()
 	if err != nil {
-		控制台合并输出换行(E2B(err))
+		LogOutLn(E2B(err))
 		return 131
 	}
 
 	var renameErr error
 	for i := 0; i < 5; i++ {
-		renameErr = os.Rename(临时路径, 目标路径)
+		renameErr = os.Rename(TmpPath, TargetPath)
 		if renameErr == nil {
 			break
 		}
@@ -913,64 +913,64 @@ func 原子写文件流(目标路径 string, 源流 io.Reader) uint8 {
 	}
 
 	if renameErr != nil {
-		控制台合并输出换行(S2B("[sys] atomic rename rejected (5 retries): "), E2B(renameErr))
+		LogOutLn(S2B("[sys] atomic rename rejected (5 retries): "), E2B(renameErr))
 		return 132
 	}
 
 	return 0
 }
 
-func 运行系统资源采集探针(生命周期 context.Context) {
-	当前间隔 := 全局配置.全服监控态.采样间隔.Load()
-	if 当前间隔 < 100 {
-		当前间隔 = 100
+func BootSysProbe(LifeCtx context.Context) {
+	CurrInterval := GlobalConf.ClusterMonState.SampleInterval.Load()
+	if CurrInterval < 100 {
+		CurrInterval = 100
 	}
-	定时器 := time.NewTicker(time.Duration(当前间隔) * time.Millisecond)
-	defer 定时器.Stop()
+	Timer := time.NewTicker(time.Duration(CurrInterval) * time.Millisecond)
+	defer Timer.Stop()
 
-	启用CPU膨胀探测 := 全局配置.核心CPU指标.启用CPU膨胀探测.Load()
+	EnableCpuInflationProbe := GlobalConf.CoreCpuMetrics.EnableCpuInflationProbe.Load()
 
 	for {
 		select {
-		case <-生命周期.Done():
+		case <-LifeCtx.Done():
 			return
-		case <-定时器.C:
-			刷新服务器状态()
-			if 启用CPU膨胀探测 {
-				计算物理调度膨胀()
+		case <-Timer.C:
+			FlushServerState()
+			if EnableCpuInflationProbe {
+				CalcSchedBloat()
 			}
 			//全服资源探针任务()
 		}
 	}
 }
 
-var 主世界世代观察者 sync.Map
-var 洞穴世代观察者 sync.Map
+var MasterEpochWatcher sync.Map
+var CavesEpochWatcher sync.Map
 
-func 全局世代心跳(生命周期 context.Context) {
-	秒表 := time.NewTicker(2 * time.Second)
-	defer 秒表.Stop()
+func GlobalEpochPulse(LifeCtx context.Context) {
+	Stopwatch := time.NewTicker(2 * time.Second)
+	defer Stopwatch.Stop()
 
 	for {
 		select {
-		case <-生命周期.Done():
+		case <-LifeCtx.Done():
 			return
-		case <-秒表.C:
-			当前主世界世代 := 全局配置.进程状态.主世界当前世代.Load()
-			主世界世代观察者.Range(func(key, value any) bool {
-				通道 := key.(chan int64)
+		case <-Stopwatch.C:
+			CurrMasterEpoch := GlobalConf.ProcState.MasterEpoch.Load()
+			MasterEpochWatcher.Range(func(key, value any) bool {
+				Chan := key.(chan int64)
 				select {
-				case 通道 <- 当前主世界世代:
+				case Chan <- CurrMasterEpoch:
 				default:
 				}
 				return true
 			})
 
-			洞穴当前世代 := 全局配置.进程状态.洞穴当前世代.Load()
-			洞穴世代观察者.Range(func(key, value any) bool {
-				通道 := key.(chan int64)
+			CurrCavesEpoch := GlobalConf.ProcState.CurrCavesEpoch.Load()
+			CavesEpochWatcher.Range(func(key, value any) bool {
+				Chan := key.(chan int64)
 				select {
-				case 通道 <- 洞穴当前世代:
+				case Chan <- CurrCavesEpoch:
 				default:
 				}
 				return true
@@ -979,63 +979,63 @@ func 全局世代心跳(生命周期 context.Context) {
 	}
 }
 
-func 主世界日志广播中心(生命周期 context.Context) {
-	订阅者集合 := make(map[chan *广播日志块]struct{})
+func MasterLogBroadcastHub(LifeCtx context.Context) {
+	vSubscribers := make(map[chan *BroadcastLogChunk]struct{})
 
 	for {
 		select {
-		case <-生命周期.Done():
+		case <-LifeCtx.Done():
 			return
 
-		case ch := <-主世界日志订阅:
-			订阅者集合[ch] = struct{}{}
+		case ch := <-MasterLogSubChan:
+			vSubscribers[ch] = struct{}{}
 
-		case ch := <-主世界日志退订:
-			delete(订阅者集合, ch)
+		case ch := <-MasterLogUnsubChan:
+			delete(vSubscribers, ch)
 			close(ch)
 
-		case 块 := <-主世界中央日志管道:
-			for ch := range 订阅者集合 {
-				块.引用数.Add(1)
+		case vChunk := <-MasterCentralLogChan:
+			for ch := range vSubscribers {
+				vChunk.RefCount.Add(1)
 				select {
-				case ch <- 块:
+				case ch <- vChunk:
 				default:
-					块.引用数.Add(-1)
+					vChunk.RefCount.Add(-1)
 				}
 			}
-			if 块.引用数.Add(-1) == 0 {
-				日志广播池.Put(块)
+			if vChunk.RefCount.Add(-1) == 0 {
+				LogBroadcastPool.Put(vChunk)
 			}
 		}
 	}
 }
 
-func 洞穴日志广播中心(生命周期 context.Context) {
-	订阅者集合 := make(map[chan *广播日志块]struct{})
+func CavesLogBroadcastHub(LifeCtx context.Context) {
+	vSubscribers := make(map[chan *BroadcastLogChunk]struct{})
 
 	for {
 		select {
-		case <-生命周期.Done():
+		case <-LifeCtx.Done():
 			return
 
-		case ch := <-洞穴日志订阅:
-			订阅者集合[ch] = struct{}{}
+		case ch := <-CavesLogSubChan:
+			vSubscribers[ch] = struct{}{}
 
-		case ch := <-洞穴日志退订:
-			delete(订阅者集合, ch)
+		case ch := <-CavesLogUnsubChan:
+			delete(vSubscribers, ch)
 			close(ch)
 
-		case 块 := <-洞穴中央日志管道:
-			for ch := range 订阅者集合 {
-				块.引用数.Add(1)
+		case vChunk := <-CavesCentralLogChan:
+			for ch := range vSubscribers {
+				vChunk.RefCount.Add(1)
 				select {
-				case ch <- 块:
+				case ch <- vChunk:
 				default:
-					块.引用数.Add(-1)
+					vChunk.RefCount.Add(-1)
 				}
 			}
-			if 块.引用数.Add(-1) == 0 {
-				日志广播池.Put(块)
+			if vChunk.RefCount.Add(-1) == 0 {
+				LogBroadcastPool.Put(vChunk)
 			}
 		}
 	}
