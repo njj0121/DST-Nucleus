@@ -380,6 +380,7 @@ var dict = map[string]string{
 	"是否为变量字符":        "IsVarChar",
 	"是标识符":           "IsIdent",
 	"是纯数字":           "IsNumeric",
+	"纯数字":            "vNumeric",
 	"标签":             "vTag",
 	"标识符":            "Ident",
 	"有效ID":           "ValidID",
