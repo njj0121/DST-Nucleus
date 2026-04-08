@@ -160,7 +160,7 @@ func main() {
 			}
 		}
 
-		for 全局配置.原子锁.游戏正在更新.Load() || 全局配置.原子锁.模组正在更新.Load() {
+		for 全局配置.原子锁.游戏正在更新.Load() || 全局配置.原子锁.模组正在繁忙.Load() {
 			控制台合并输出换行(S2B("[warn] race condition prevented: background update in progress, waiting for locks to release..."))
 			time.Sleep(2 * time.Second)
 		}

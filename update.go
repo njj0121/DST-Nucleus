@@ -80,12 +80,18 @@ func 运行版本监控(生命周期 context.Context) {
 
 		case <-定时器.C:
 			if 探测游戏更新() == 状态_执行成功 {
-				动作总线 <- 动作_执行游戏本体更新
+				select {
+				case 动作总线 <- 动作_执行游戏本体更新:
+				default:
+				}
 				return
 			}
 
 			if 探测模组更新() == 状态_执行成功 {
-				动作总线 <- 动作_执行模组热更新
+				select {
+				case 动作总线 <- 动作_执行模组热更新:
+				default:
+				}
 				return
 			}
 		}
@@ -112,6 +118,11 @@ func 探测游戏更新() uint8 {
 var 全局目标模组缓存 = make([]uint64, 0, 256)
 
 func 探测模组更新() uint8 {
+	if !全局配置.原子锁.模组正在繁忙.CompareAndSwap(false, true) {
+		控制台合并输出换行(S2B("[core] mod update lock denied. already in progress."))
+		return 状态_锁拦截
+	}
+	defer 全局配置.原子锁.模组正在繁忙.Store(false)
 	模组列表, err := 读取行()
 	if err != 0 {
 		控制台合并输出换行(S2B("[sys] mod.txt io error: "), S2B(全局配置.配置区1.模组Lua更新文件目标路径))
@@ -201,10 +212,12 @@ func 执行游戏更新() uint8 {
 }
 
 func 执行模组更新() uint8 {
-	if !全局配置.原子锁.模组正在更新.CompareAndSwap(false, true) {
+	if !全局配置.原子锁.模组正在繁忙.CompareAndSwap(false, true) {
 		控制台合并输出换行(S2B("[core] mod update lock denied. already in progress."))
 		return 状态_锁拦截
 	}
+	defer 全局配置.原子锁.模组正在繁忙.Store(false)
+	全局配置.原子锁.模组正在更新.Store(true)
 	defer 全局配置.原子锁.模组正在更新.Store(false)
 
 	模组列表, err := 读取行()
@@ -851,16 +864,11 @@ func 读取行() ([]uint64, uint8) {
 }
 
 var (
-	全局本地模组缓存锁 sync.Mutex
 	全局本地模组时间表 = make(map[uint64]int64, 128)
-
-	全局远程模组缓存锁 sync.Mutex
 	全局远程模组时间表 = make(map[uint64]int64, 128)
 )
 
 func 获取本地模组时间表(目标模组列表 []uint64) (map[uint64]int64, uint8) {
-	全局本地模组缓存锁.Lock()
-	defer 全局本地模组缓存锁.Unlock()
 	for k := range 全局本地模组时间表 {
 		delete(全局本地模组时间表, k)
 	}
@@ -928,8 +936,6 @@ var (
 )
 
 func 获取远程模组更新时间(模组列表 []uint64) (map[uint64]int64, uint8) {
-	全局远程模组缓存锁.Lock()
-	defer 全局远程模组缓存锁.Unlock()
 	for k := range 全局远程模组时间表 {
 		delete(全局远程模组时间表, k)
 	}

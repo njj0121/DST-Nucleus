@@ -54,6 +54,7 @@ type 系统配置 struct {
 		允许服务器运行原子锁 atomic.Bool
 		游戏正在更新     atomic.Bool
 		模组正在更新     atomic.Bool
+		模组正在繁忙     atomic.Bool
 		主世界就绪原子锁   atomic.Bool
 		洞穴就绪原子锁    atomic.Bool
 		正在手动关闭原子锁  atomic.Bool
