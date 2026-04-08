@@ -946,8 +946,7 @@ func 获取本地模组时间表(目标模组列表 []uint64) (map[uint64]int64,
 }
 
 var (
-	全局模组API缓冲锁 sync.Mutex
-	全局API缓冲    [65536]byte
+	全局API缓冲 [65536]byte
 )
 
 func 获取远程模组更新时间(模组列表 []uint64) (map[uint64]int64, uint8) {
@@ -960,7 +959,6 @@ func 获取远程模组更新时间(模组列表 []uint64) (map[uint64]int64, ui
 
 	const apiURL = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
 
-	全局模组API缓冲锁.Lock()
 	游标 := 0
 
 	游标 += copy(全局API缓冲[游标:], "itemcount=")
@@ -979,7 +977,6 @@ func 获取远程模组更新时间(模组列表 []uint64) (map[uint64]int64, ui
 	}
 
 	请求载荷 := string(全局API缓冲[:游标])
-	全局模组API缓冲锁.Unlock()
 
 	body := 发起竞速请求(apiURL, 请求载荷)
 	if body == nil {
