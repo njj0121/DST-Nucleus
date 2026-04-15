@@ -463,3 +463,27 @@ curl -X POST "http://127.0.0.1:20888/api/command?target=master" -d 'for _, v in 
 # cleanup: kill $LISTENER_PID
 ```
 > (Concept: This is exactly how you build robust, language-agnostic Discord bots or automated Server Managers without ever touching the Go Core. Inject via POST, catch via SSE.)
+
+## 9. /api/checkupdate
+* Method: `POST`
+
+* Endpoint: `http://127.0.0.1:20888/api/checkupdate`
+
+### 9.1 Description
+This endpoint triggers an active update detection process for the game or mods. It sends a signal to initiate checking for available updates.
+
+### 9.2 Trigger Logic
+When called, the API sends a signal to the version monitoring goroutine, which immediately performs update checks for both game and mods. Additionally, it resets the automatic detection timer to its full interval.
+
+### 9.3 Success Response
+Returns `{"status": "success"}`.
+
+### 9.4 Error Response
+If the update detection cannot be triggered, the endpoint returns `{"status":"error", "message":"invalid state"}` with HTTP status code 409.
+
+There are two specific conditions that block the trigger:
+
+* The game process is not currently running, so the update monitoring goroutine has not been started.
+* An update check is already in progress, and the core refuses to start a second concurrent detection.
+
+In either case, the request is rejected immediately with the same 409 response to indicate the operation is not available at this time.
