@@ -168,7 +168,7 @@ var 跨域头 = []string{"*"}
 
 var sse观察者矩阵 sync.Map
 
-var api_events500 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'f', 'l', 'u', 's', 'h', 'e', 'r', ' ', 'n', 'o', 't', ' ', 's', 'u', 'p', 'p', 'o', 'r', 't', 'e', 'd', '"', '}'}
+var api_events500 = []byte(`{"status":"error", "message":"flusher not supported"}`)
 
 func api_events(w http.ResponseWriter, r *http.Request) {
 	w.Header()["Content-Type"] = sse头
@@ -268,13 +268,13 @@ func api_epoch_caves(w http.ResponseWriter, r *http.Request) {
 
 var 命令api原子锁 状态锁
 
-var api_command413 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'p', 'a', 'y', 'l', 'o', 'a', 'd', ' ', 't', 'o', 'o', ' ', 'l', 'a', 'r', 'g', 'e', '"', '}'}
-var api_command400_1 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'b', 'a', 'd', ' ', 'r', 'e', 'q', 'u', 'e', 's', 't', ' ', 'o', 'r', ' ', 'p', 'a', 'y', 'l', 'o', 'a', 'd', ' ', 't', 'o', 'o', ' ', 'l', 'a', 'r', 'g', 'e', '"', '}'}
-var api_command400_2 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'e', 'm', 'p', 't', 'y', ' ', 'p', 'a', 'y', 'l', 'o', 'a', 'd', '"', '}'}
-var api_command503_1 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'w', 'a', 'r', 'n', 'i', 'n', 'g', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'm', 'a', 's', 't', 'e', 'r', ' ', 'a', 'c', 'k', ',', ' ', 'c', 'a', 'v', 'e', 's', ' ', 'd', 'r', 'o', 'p', 'p', 'e', 'd', ' ', '(', 'c', 'o', 'n', 'g', 'e', 's', 't', 'i', 'o', 'n', ')', '"', '}'}
-var api_command503_2 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'c', 'a', 'v', 'e', 's', ' ', 'a', 'c', 'k', ',', ' ', 'm', 'a', 's', 't', 'e', 'r', ' ', 'd', 'r', 'o', 'p', 'p', 'e', 'd', ' ', '(', 'c', 'o', 'n', 'g', 'e', 's', 't', 'i', 'o', 'n', ')', '"', '}'}
-var api_command400_3 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'i', 'n', 'v', 'a', 'l', 'i', 'd', ' ', 't', 'a', 'r', 'g', 'e', 't', '"', '}'}
-var api_command503_3 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'p', 'i', 'p', 'e', 'l', 'i', 'n', 'e', ' ', 'c', 'o', 'n', 'g', 'e', 's', 't', 'e', 'd', ',', ' ', 'p', 'a', 'y', 'l', 'o', 'a', 'd', ' ', 'd', 'r', 'o', 'p', 'p', 'e', 'd', '"', '}'}
+var api_command413 = []byte(`{"status":"error", "message":"payload too large"}`)
+var api_command400_1 = []byte(`{"status":"error", "message":"bad request or payload too large"}`)
+var api_command400_2 = []byte(`{"status":"error", "message":"empty payload"}`)
+var api_command503_1 = []byte(`{"status":"warning", "message":"master ack, caves dropped (congestion)"}`)
+var api_command503_2 = []byte(`{"status":"caves ack, master dropped (congestion)"}`)
+var api_command400_3 = []byte(`{"status":"error", "message":"invalid target"}`)
+var api_command503_3 = []byte(`{"status":"error", "message":"pipeline congested, payload dropped"}`)
 
 func api_command(w http.ResponseWriter, r *http.Request) {
 	if !命令api原子锁.锁定状态.CompareAndSwap(0, 1) {
@@ -398,7 +398,7 @@ func api_command(w http.ResponseWriter, r *http.Request) {
 	w.Write(success200)
 }
 
-var api_start409 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 's', 't', 'a', 'r', 't', ' ', 'b', 'l', 'o', 'c', 'k', 'e', 'd', '"', '}'}
+var api_start409 = []byte(`{"status":"error", "message":"start blocked"}`)
 
 func api_start(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -563,12 +563,12 @@ func api_file_read(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, f)
 }
 
-var api_file_write400_1 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'e', 'm', 'p', 't', 'y', ' ', 'p', 'a', 'y', 'l', 'o', 'a', 'd', ' ', 'r', 'e', 'j', 'e', 'c', 't', 'e', 'd', '"', '}'}
-var api_file_write400_2 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'i', 'n', 'v', 'a', 'l', 'i', 'd', ' ', 't', 'a', 'r', 'g', 'e', 't', '"', '}'}
-var api_file_write400_3 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'u', 'n', 'c', 'o', 'n', 'f', 'i', 'g', 'u', 'r', 'e', 'd', ' ', 't', 'a', 'r', 'g', 'e', 't', '"', '}'}
-var api_file_write500_1 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'p', 'r', 'i', 'm', 'a', 'r', 'y', ' ', 'w', 'r', 'i', 't', 'e', ' ', 'f', 'a', 'i', 'l', 'e', 'd', '"', '}'}
-var api_file_write500_2 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'c', 'l', 'o', 'n', 'e', ' ', 't', 'o', ' ', 's', 'e', 'c', 'o', 'n', 'd', 'a', 'r', 'y', ' ', 'f', 'a', 'i', 'l', 'e', 'd', '"', '}'}
-var api_file_write200 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 's', 'u', 'c', 'c', 'e', 's', 's', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'z', 'e', 'r', 'o', '-', 'c', 'o', 'p', 'y', ' ', 's', 't', 'r', 'e', 'a', 'm', ' ', 'w', 'r', 'i', 't', 'e', ' ', 'c', 'o', 'm', 'p', 'l', 'e', 't', 'e', '"', '}'}
+var api_file_write400_1 = []byte(`{"status":"error", "message":"empty payload rejected"}`)
+var api_file_write400_2 = []byte(`{"status":"error", "message":"invalid target"}`)
+var api_file_write400_3 = []byte(`{"status":"error", "message":"unconfigured target"}`)
+var api_file_write500_1 = []byte(`{"status":"error", "message":"primary write failed"}`)
+var api_file_write500_2 = []byte(`{"status":"error", "message":"clone to secondary failed"}`)
+var api_file_write200 = []byte(`{"status":"success", "message":"zero-copy stream write complete"}`)
 
 func api_file_write(w http.ResponseWriter, r *http.Request) {
 	if !文件读写原子锁.锁定状态.CompareAndSwap(0, 1) {
@@ -670,7 +670,7 @@ func api_file_write(w http.ResponseWriter, r *http.Request) {
 	w.Write(api_file_write200)
 }
 
-var api_update_state413 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'P', 'a', 'y', 'l', 'o', 'a', 'd', ' ', 'T', 'o', 'o', ' ', 'L', 'a', 'r', 'g', 'e', '"', '}'}
+var api_update_state413 = []byte(`{"status":"error", "message":"Payload Too Large"}`)
 
 func api_update_state(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -917,7 +917,7 @@ func api_log_caves(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var api_checkupdate409 = []byte{'{', '"', 's', 't', 'a', 't', 'u', 's', '"', ':', '"', 'e', 'r', 'r', 'o', 'r', '"', ',', ' ', '"', 'm', 'e', 's', 's', 'a', 'g', 'e', '"', ':', '"', 'i', 'n', 'v', 'a', 'l', 'i', 'd', ' ', 's', 't', 'a', 't', 'e', '"', '}'}
+var api_checkupdate409 = []byte(`{"status":"error", "message":"invalid state"}`)
 
 func api_checkupdate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
