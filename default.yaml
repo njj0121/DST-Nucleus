@@ -95,9 +95,11 @@ graceful_restart_wait: 480
 auto_gen_default_configs: false
 
 # [SUPERVISOR] Embraces the "Let it crash" philosophy. 
-# ANY process termination not explicitly triggered by an update is a fatal crash.
-# true: The engine will ruthlessly resurrect the dead game process.
-# false: The engine terminates itself and dies alongside the game process.
+# ANY process termination not explicitly triggered by an update is considered a crash.
+# true: The engine will resurrect the dead game process (auto-restart on crash).
+# false: The engine will NOT attempt to restart the crashed game process.
+#        Instead, the manager will stop starting the game (it clears the internal "allow run" lock)
+#        and the daemon process will remain running for inspection or manual intervention.
 crash_restart: true
 
 # ==========================================================

@@ -223,15 +223,14 @@ func main() {
 		case 动作_主世界崩溃, 动作_洞穴崩溃:
 			控制台合并输出换行(S2B("[core] cleanup done, sleep 3s before dual-shard boot..."))
 			if !全局配置.配置区2.启用崩溃重启.Load() {
-				return
+				全局配置.原子锁.允许服务器运行原子锁.Store(false)
 			}
 			time.Sleep(3 * time.Second)
 		case 动作_执行API强制关闭:
 			控制台合并输出换行(S2B("[core] server terminated forcefully."))
 			if !全局配置.配置区2.启用崩溃重启.Load() {
-				return
+				全局配置.原子锁.允许服务器运行原子锁.Store(false)
 			}
-			continue
 		case 动作_执行系统关机:
 			控制台合并输出换行(S2B("[core] system exit(0)."))
 			return
